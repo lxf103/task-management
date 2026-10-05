@@ -127,6 +127,10 @@ function renderTaskCard(task, currentUser, isAdmin) {
     html += '<div class="category-tag">' + escapeHtml(task.category) + '</div>';
   }
 
+  if (task.region) {
+    html += '<div class="region-tag" style="display:inline-block;background:#f0f9ff;color:#0369a1;padding:3px 10px;border-radius:12px;font-size:12px;margin:5px 5px 0 0;">📍 ' + escapeHtml(task.region) + '</div>';
+  }
+
   html += '<div class="task-details">';
   html += '<div class="detail-item"><div class="detail-label">发布人</div><div class="detail-value">' + escapeHtml(task.publisher) + ' ' + renderUserBadge(task.publisher) + '</div></div>';
   html += '<div class="detail-item"><div class="detail-label">交付方式</div><div class="detail-value">' + escapeHtml(task.delivery) + '</div></div>';
@@ -227,8 +231,6 @@ function pageShell(title, bodyHtml, currentUser, navLinks) {
   }
   html += bodyHtml;
   html += '</div>';
-  html += '<div id="install-banner" style="display:none;position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#3b82f6;color:white;padding:20px 30px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:9999;text-align:center;max-width:90%;"><p style="margin:0 0 15px 0;font-size:16px;">📱 安装任务管理系统到桌面，使用更方便！</p><div id="install-buttons" style="display:flex;gap:10px;justify-content:center;"></div></div>';
-  html += '<script>let deferredPrompt;let installReady=false;window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();deferredPrompt=e;installReady=true;showInstallBanner()});function showInstallBanner(){var banner=document.getElementById("install-banner");var btns=document.getElementById("install-buttons");banner.style.display="block";btns.innerHTML="";if(installReady){var btn=document.createElement("button");btn.textContent="立即安装";btn.style.cssText="background:white;color:#3b82f6;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;";btn.onclick=function(){deferredPrompt.prompt();deferredPrompt.userChoice.then(function(){banner.style.display="none";deferredPrompt=null})};btns.appendChild(btn)}else{var tip=document.createElement("p");tip.textContent="请点浏览器菜单→应用→安装此站点";tip.style.cssText="margin:0;font-size:14px;";btns.appendChild(tip)}var cancel=document.createElement("button");cancel.textContent="稍后再说";cancel.style.cssText="background:transparent;color:white;border:2px solid white;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;";cancel.onclick=function(){banner.style.display="none"};btns.appendChild(cancel)}setTimeout(showInstallBanner,1500);</script>';
   html += '</body></html>';
   return html;
 }
@@ -497,15 +499,29 @@ const server = http.createServer((req, res) => {
     parseBody((params) => {
       const username = getParam(params, 'username');
       const password = getParam(params, 'password');
+      const region = getParam(params, 'region') || '';
       if (users.find(u => u.username === username)) {
         redirect(res, '/register?error=' + encodeURIComponent('用户名已存在'));
       } else {
         const isFirstUser = users.length === 0;
-        users.push({username, password, isAdmin: isFirstUser});
+        users.push({username, password, region, isAdmin: isFirstUser});
         saveData();
         setCookie(res, 'username', username);
         redirect(res, '/');
       }
+    });
+  }
+  // ===== POST: 更新地区 =====
+  else if (url === '/update-region' && req.method === 'POST') {
+    if (requireLogin()) return;
+    parseBody((params) => {
+      const region = getParam(params, 'region') || '';
+      const user = users.find(u => u.username === currentUser);
+      if (user) {
+        user.region = region;
+        saveData();
+      }
+      redirect(res, '/profile');
     });
   }
   // ===== POST: 发布任务（带附件） =====
@@ -520,13 +536,15 @@ const server = http.createServer((req, res) => {
       const saveAsTemplate = getParam(params, 'saveTemplate');
 
       if (desc && delivery && reward) {
+        const publisherUser = users.find(u => u.username === currentUser);
+        const publisherRegion = publisherUser ? (publisherUser.region || '') : '';
         const attachments = [];
         if (isMultipart && params.attachment && params.attachment.originalName) {
           attachments.push({ originalName: params.attachment.originalName, savedName: params.attachment.savedName, path: params.attachment.path });
         }
 
         tasks.push({
-          id: nextId++, description: desc, publisher: currentUser, delivery, reward, category, deadline,
+          id: nextId++, description: desc, publisher: currentUser, delivery, reward, category, deadline, region: publisherRegion,
           claimed: false, claimer: '', createdAt: Date.now(),
           completedAt: null, confirmedAt: null, messages: [], rating: 0, attachments
         });
@@ -761,6 +779,7 @@ const server = http.createServer((req, res) => {
     html += '<form action="/register" method="POST">';
     html += '<label>用户名</label><input type="text" name="username" placeholder="设置用户名" required>';
     html += '<label>密码</label><input type="text" name="password" placeholder="设置密码" required>';
+    html += '<label>所在地区</label><select name="region" required><option value="">请选择城市</option><option value="北京">北京</option><option value="上海">上海</option><option value="天津">天津</option><option value="重庆">重庆</option><option value="石家庄">石家庄</option><option value="太原">太原</option><option value="沈阳">沈阳</option><option value="大连">大连</option><option value="长春">长春</option><option value="哈尔滨">哈尔滨</option><option value="南京">南京</option><option value="苏州">苏州</option><option value="无锡">无锡</option><option value="常州">常州</option><option value="徐州">徐州</option><option value="杭州">杭州</option><option value="宁波">宁波</option><option value="温州">温州</option><option value="合肥">合肥</option><option value="福州">福州</option><option value="厦门">厦门</option><option value="泉州">泉州</option><option value="南昌">南昌</option><option value="济南">济南</option><option value="青岛">青岛</option><option value="烟台">烟台</option><option value="郑州">郑州</option><option value="武汉">武汉</option><option value="长沙">长沙</option><option value="广州">广州</option><option value="深圳">深圳</option><option value="东莞">东莞</option><option value="佛山">佛山</option><option value="珠海">珠海</option><option value="南宁">南宁</option><option value="海口">海口</option><option value="成都">成都</option><option value="贵阳">贵阳</option><option value="昆明">昆明</option><option value="拉萨">拉萨</option><option value="西安">西安</option><option value="兰州">兰州</option><option value="西宁">西宁</option><option value="银川">银川</option><option value="乌鲁木齐">乌鲁木齐</option><option value="呼和浩特">呼和浩特</option><option value="台北">台北</option><option value="香港">香港</option><option value="澳门">澳门</option></select>';
     html += '<button type="submit">注册</button>';
     html += '</form>';
     if (error) html += '<p class="error-msg">' + escapeHtml(error) + '</p>';
@@ -777,16 +796,26 @@ const server = http.createServer((req, res) => {
   else if (url === '/' && currentUser) {
     const user = users.find(u => u.username === currentUser);
     const isAdmin = user && (user.isAdmin || user.isSuperAdmin);
-    let body = '<div class="header"><h1>任务管理系统</h1><p class="subtitle">发布、领取、管理你的任务</p></div>';
+    const userRegion = user ? (user.region || '') : '';
+    let body = '<div class="header"><h1>任务管理系统</h1>';
+    if (userRegion) {
+      body += '<p class="subtitle">当前地区：📍 ' + escapeHtml(userRegion) + ' | 发布、领取、管理你的任务</p>';
+    } else {
+      body += '<p class="subtitle">发布、领取、管理你的任务</p>';
+    }
+    body += '</div>';
+
+    const regionTasks = userRegion ? tasks.filter(t => t.region === userRegion) : tasks;
+
     body += '<div class="stats">';
-    body += '<div class="stat-item"><div class="stat-number">' + tasks.length + '</div><div class="stat-label">总任务数</div></div>';
-    body += '<div class="stat-item"><div class="stat-number">' + tasks.filter(t => !t.claimed && !isExpired(t)).length + '</div><div class="stat-label">待领取</div></div>';
-    body += '<div class="stat-item"><div class="stat-number">' + tasks.filter(t => t.claimed && !t.confirmedAt).length + '</div><div class="stat-label">进行中</div></div>';
-    body += '<div class="stat-item"><div class="stat-number">' + tasks.filter(t => t.confirmedAt).length + '</div><div class="stat-label">已完成</div></div>';
+    body += '<div class="stat-item"><div class="stat-number">' + regionTasks.length + '</div><div class="stat-label">总任务数</div></div>';
+    body += '<div class="stat-item"><div class="stat-number">' + regionTasks.filter(t => !t.claimed && !isExpired(t)).length + '</div><div class="stat-label">待领取</div></div>';
+    body += '<div class="stat-item"><div class="stat-number">' + regionTasks.filter(t => t.claimed && !t.confirmedAt).length + '</div><div class="stat-label">进行中</div></div>';
+    body += '<div class="stat-item"><div class="stat-number">' + regionTasks.filter(t => t.confirmedAt).length + '</div><div class="stat-label">已完成</div></div>';
     body += '</div>';
 
     body += '<h2 class="section-title">任务大厅（待领取）</h2>';
-    const availableTasks = tasks.filter(t => !t.claimed && !isExpired(t)).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+    const availableTasks = regionTasks.filter(t => !t.claimed && !isExpired(t)).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
     if (availableTasks.length === 0) {
       body += '<div class="empty-state"><p>暂无待领取任务，快去发布一个吧！</p></div>';
     } else {
@@ -810,16 +839,26 @@ const server = http.createServer((req, res) => {
     const filter = qs.get('filter') || 'all';
     const search = qs.get('search') || '';
     const category = qs.get('category') || '';
+    const userRegion = user ? (user.region || '') : '';
 
     let filteredTasks = tasks;
-    if (filter === 'available') filteredTasks = tasks.filter(t => !t.claimed && !isExpired(t));
-    else if (filter === 'claimed') filteredTasks = tasks.filter(t => t.claimed && !t.confirmedAt);
-    else if (filter === 'confirmed') filteredTasks = tasks.filter(t => t.confirmedAt);
-    else if (filter === 'expired') filteredTasks = tasks.filter(t => isExpired(t));
+    if (userRegion) {
+      filteredTasks = filteredTasks.filter(t => t.region === userRegion);
+    }
+    if (filter === 'available') filteredTasks = filteredTasks.filter(t => !t.claimed && !isExpired(t));
+    else if (filter === 'claimed') filteredTasks = filteredTasks.filter(t => t.claimed && !t.confirmedAt);
+    else if (filter === 'confirmed') filteredTasks = filteredTasks.filter(t => t.confirmedAt);
+    else if (filter === 'expired') filteredTasks = filteredTasks.filter(t => isExpired(t));
     if (search) filteredTasks = filteredTasks.filter(t => t.description.includes(search) || t.publisher.includes(search));
     if (category) filteredTasks = filteredTasks.filter(t => t.category === category);
 
-    let body = '<div class="header"><h1>所有任务</h1><p class="subtitle">包括已领取和待领取的任务</p></div>';
+    let body = '<div class="header"><h1>所有任务</h1>';
+    if (userRegion) {
+      body += '<p class="subtitle">📍 ' + escapeHtml(userRegion) + ' 地区的任务</p>';
+    } else {
+      body += '<p class="subtitle">包括已领取和待领取的任务</p>';
+    }
+    body += '</div>';
     body += '<div class="filter-bar">';
     body += '<form action="/list" method="GET" style="display:flex;gap:15px;flex-wrap:wrap;margin:0;padding:0;box-shadow:none;background:transparent;">';
     body += '<select name="filter"><option value="all"' + (filter === 'all' ? ' selected' : '') + '>全部</option><option value="available"' + (filter === 'available' ? ' selected' : '') + '>待领取</option><option value="claimed"' + (filter === 'claimed' ? ' selected' : '') + '>进行中</option><option value="confirmed"' + (filter === 'confirmed' ? ' selected' : '') + '>已完成</option><option value="expired"' + (filter === 'expired' ? ' selected' : '') + '>已过期</option></select>';
@@ -1131,10 +1170,12 @@ const server = http.createServer((req, res) => {
   }
   // ===== 个人中心 =====
   else if (url === '/profile' && currentUser) {
+    const user = users.find(u => u.username === currentUser);
     const rep = getUserReputation(currentUser);
     const publishedCount = tasks.filter(t => t.publisher === currentUser).length;
     const claimedCount = tasks.filter(t => t.claimer === currentUser).length;
     const completedCount = tasks.filter(t => t.confirmedAt && (t.publisher === currentUser || t.claimer === currentUser)).length;
+    const userRegion = user ? (user.region || '') : '';
 
     let body = '<div class="profile-stats">';
     body += '<h2>个人中心 - ' + escapeHtml(currentUser) + ' ' + renderUserBadge(currentUser) + '</h2>';
@@ -1143,7 +1184,19 @@ const server = http.createServer((req, res) => {
     body += '<div class="stat-box"><div class="number">' + publishedCount + '</div><div class="label">发布任务</div></div>';
     body += '<div class="stat-box"><div class="number">' + claimedCount + '</div><div class="label">领取任务</div></div>';
     body += '<div class="stat-box"><div class="number">' + completedCount + '</div><div class="label">完成任务</div></div>';
-    body += '</div></div>';
+    body += '</div>';
+    body += '<div style="margin-top:20px;padding:20px;background:#f8fafc;border-radius:12px;">';
+    body += '<h3 style="margin:0 0 10px 0;">📍 当前地区：' + (userRegion ? escapeHtml(userRegion) : '<span style="color:#ef4444;">未设置</span>') + '</h3>';
+    body += '<form action="/update-region" method="POST" style="display:flex;gap:10px;align-items:center;margin:0;padding:0;box-shadow:none;background:transparent;">';
+    body += '<select name="region" style="flex:1;padding:10px;border-radius:8px;border:1px solid #ddd;"><option value="">请选择城市</option>';
+    const regions = ['北京','上海','天津','重庆','石家庄','太原','沈阳','大连','长春','哈尔滨','南京','苏州','无锡','常州','徐州','杭州','宁波','温州','合肥','福州','厦门','泉州','南昌','济南','青岛','烟台','郑州','武汉','长沙','广州','深圳','东莞','佛山','珠海','南宁','海口','成都','贵阳','昆明','拉萨','西安','兰州','西宁','银川','乌鲁木齐','呼和浩特','台北','香港','澳门'];
+    regions.forEach(r => {
+      body += '<option value="' + r + '"' + (userRegion === r ? ' selected' : '') + '>' + r + '</option>';
+    });
+    body += '</select>';
+    body += '<button type="submit" style="width:auto;margin:0;padding:10px 20px;">更新</button>';
+    body += '</form></div>';
+    body += '</div>';
 
     const myTemplates = templates.filter(t => t.owner === currentUser);
     if (myTemplates.length > 0) {
@@ -1187,6 +1240,7 @@ const server = http.createServer((req, res) => {
       body += '<div class="admin-user-item"><div class="user-info"><strong>' + escapeHtml(u.username) + '</strong>';
       if (u.isSuperAdmin) body += ' <span style="color:#dc2626;font-size:12px;font-weight:600;">超级管理员</span>';
       else if (u.isAdmin) body += ' <span style="color:#ef4444;font-size:12px;">管理员</span>';
+      if (u.region) body += ' <span style="color:#0369a1;font-size:12px;">📍' + escapeHtml(u.region) + '</span>';
       if (u.banned) body += ' <span style="color:#999;font-size:12px;">已封禁</span>';
       body += '</div><div class="user-actions">';
       if (isSuperAdmin && !u.isSuperAdmin) {
