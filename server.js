@@ -227,7 +227,8 @@ function pageShell(title, bodyHtml, currentUser, navLinks) {
   }
   html += bodyHtml;
   html += '</div>';
-  html += '<script>let deferredPrompt;window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();deferredPrompt=e;setTimeout(function(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(function(){deferredPrompt=null})},2000)});</script>';
+  html += '<div id="install-banner" style="display:none;position:fixed;top:20px;left:50%;transform:translateX(-50%);background:#3b82f6;color:white;padding:20px 30px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:9999;text-align:center;"><p style="margin:0 0 15px 0;font-size:16px;">📱 安装任务管理系统到桌面，使用更方便！</p><div style="display:flex;gap:10px;justify-content:center;"><button id="install-btn" style="background:white;color:#3b82f6;border:none;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:bold;">立即安装</button><button id="install-cancel" style="background:transparent;color:white;border:2px solid white;padding:10px 24px;border-radius:8px;cursor:pointer;font-size:14px;">稍后再说</button></div></div>';
+  html += '<script>let deferredPrompt;window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();deferredPrompt=e;setTimeout(function(){document.getElementById("install-banner").style.display="block"},1500)});document.getElementById("install-btn")&&document.getElementById("install-btn").addEventListener("click",function(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(function(){document.getElementById("install-banner").style.display="none";deferredPrompt=null})}});document.getElementById("install-cancel")&&document.getElementById("install-cancel").addEventListener("click",function(){document.getElementById("install-banner").style.display="none"});</script>';
   html += '</body></html>';
   return html;
 }
