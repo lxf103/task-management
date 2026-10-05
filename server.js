@@ -209,7 +209,7 @@ function renderTaskCard(task, currentUser, isAdmin) {
 }
 
 function pageShell(title, bodyHtml, currentUser, navLinks) {
-  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + escapeHtml(title) + '</title>' + style + '</head><body><div class="container">';
+  let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon-192.png"><title>' + escapeHtml(title) + '</title>' + style + '</head><body><div class="container">';
   if (currentUser) {
     const user = users.find(u => u.username === currentUser);
     const isAdmin = user && (user.isAdmin || user.isSuperAdmin);
@@ -447,6 +447,16 @@ const server = http.createServer((req, res) => {
   }
 
   // ===== 静态文件 =====
+  if (url === '/manifest.json') {
+    res.writeHead(200, {'Content-Type': 'application/json'});
+    fs.createReadStream(path.join(__dirname, 'manifest.json')).pipe(res);
+    return;
+  }
+  if (url === '/icon-192.png') {
+    res.writeHead(200, {'Content-Type': 'image/png'});
+    fs.createReadStream(path.join(__dirname, 'icon-192.png')).pipe(res);
+    return;
+  }
   if (url.startsWith('/uploads/')) {
     const filePath = path.join(__dirname, url);
     if (fs.existsSync(filePath)) {
@@ -724,7 +734,7 @@ const server = http.createServer((req, res) => {
     const qs = url.includes('?') ? new URLSearchParams(url.split('?')[1]) : null;
     const error = qs ? qs.get('error') : null;
 
-    let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>登录</title>' + style + '</head><body><div class="container">';
+    let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon-192.png"><title>登录</title>' + style + '</head><body><div class="container">';
     html += '<div class="login-form">';
     html += '<h2>任务管理系统</h2>';
     html += '<form action="/login" method="POST">';
@@ -742,7 +752,7 @@ const server = http.createServer((req, res) => {
     const qs = url.includes('?') ? new URLSearchParams(url.split('?')[1]) : null;
     const error = qs ? qs.get('error') : null;
 
-    let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>注册</title>' + style + '</head><body><div class="container">';
+    let html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon-192.png"><title>注册</title>' + style + '</head><body><div class="container">';
     html += '<div class="login-form">';
     html += '<h2>注册新账号</h2>';
     html += '<form action="/register" method="POST">';
@@ -970,6 +980,8 @@ const server = http.createServer((req, res) => {
   }
   // ===== 领取任务 =====
   else if (url.startsWith('/claim') && currentUser) {
+    const user = users.find(u => u.username === currentUser);
+    const isAdmin = user && (user.isAdmin || user.isSuperAdmin);
     const params = new URLSearchParams(url.split('?')[1] || '');
     const id = parseInt(params.get('id'));
     const confirmClaim = params.get('claimer');
