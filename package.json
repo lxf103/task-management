@@ -1,0 +1,12 @@
+{
+  "name": "task-management-system",
+  "version": "1.0.0",
+  "description": "任务管理系统",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["task", "management"],
+  "author": "",
+  "license": "ISC"
+}

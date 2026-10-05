@@ -1,0 +1,84 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "description": "帮忙测试一下新功能",
+      "publisher": "ceshi",
+      "delivery": "线上",
+      "reward": "一杯奶茶",
+      "category": "生活",
+      "deadline": "",
+      "claimed": true,
+      "claimer": "alice",
+      "createdAt": 1791192243975,
+      "completedAt": 1791193017500,
+      "confirmedAt": 1791193754655,
+      "messages": [
+        {
+          "user": "alice",
+          "content": "你好，这个任务我快完成了，稍等一下",
+          "at": 1791192964735
+        }
+      ],
+      "rating": 5,
+      "pinned": false
+    },
+    {
+      "id": 4,
+      "description": "测试置顶任务",
+      "publisher": "卢相锋",
+      "delivery": "线上",
+      "reward": "10元",
+      "category": "学习",
+      "deadline": "",
+      "claimed": false,
+      "claimer": "",
+      "createdAt": 1791197402034,
+      "completedAt": null,
+      "confirmedAt": null,
+      "messages": [],
+      "rating": 0,
+      "attachments": [],
+      "pinned": false
+    },
+    {
+      "id": 3,
+      "description": "测试",
+      "publisher": "测试",
+      "delivery": "线上",
+      "reward": "测试",
+      "category": "学习",
+      "deadline": "",
+      "claimed": true,
+      "claimer": "卢相锋",
+      "createdAt": 1791195844390,
+      "completedAt": 1791195894519,
+      "confirmedAt": 1791195910395,
+      "messages": [],
+      "rating": 5,
+      "pinned": false
+    }
+  ],
+  "users": [
+    {
+      "username": "ceshi",
+      "password": "123",
+      "isAdmin": true
+    },
+    {
+      "username": "alice",
+      "password": "123"
+    },
+    {
+      "username": "测试",
+      "password": "a"
+    },
+    {
+      "username": "卢相锋",
+      "password": "lxf08200820",
+      "isSuperAdmin": true
+    }
+  ],
+  "nextId": 5,
+  "templates": []
+}
