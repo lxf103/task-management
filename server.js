@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { handleApi } = require('./api');
 
 const DATA_FILE = path.join(__dirname, 'task-data.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
@@ -412,6 +413,12 @@ const server = http.createServer((req, res) => {
   const cookies = parseCookies(req);
   const currentUser = cookies.username ? decodeURIComponent(cookies.username) : null;
   const url = req.url;
+
+  // ===== API 路由（供小程序调用）=====
+  if (url.startsWith('/api/')) {
+    const nextIdRef = { get value() { return nextId; }, set value(v) { nextId = v; } };
+    return handleApi(req, res, { tasks, users, templates, saveData, nextIdRef, originalUrl: url });
+  }
 
   function collectBody(callback) {
     const chunks = [];
