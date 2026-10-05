@@ -1,28 +1,36 @@
 /**
  * api.js — JSON API 层（供微信小程序调用）
  * 在 server.js 中通过 handleApi(req, res, ...) 调用。
- * 认证方式：登录/注册后返回 token，后续请求 Header 带 Authorization: Bearer <token>。
+ * 认证方式：无状态签名 token（HMAC），不依赖内存 session，Railway 重启后 token 仍有效。
  */
 
 const crypto = require('crypto');
 
-// ===== Token 管理 =====
-// 简单内存 Map，token -> username。重启后失效（对练习项目够用）。
-const sessions = new Map();
+// ===== 无状态签名 Token =====
+// 生产环境应把 SECRET 放环境变量；练习项目硬编码即可。
+const SECRET = 'campus-task-secret-2026-do-not-share';
 
 function generateToken(username) {
-  const token = crypto.randomBytes(24).toString('hex');
-  sessions.set(token, username);
-  return token;
+  const ts = Date.now();
+  const payload = Buffer.from(username + ':' + ts).toString('base64');
+  const sig = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  return payload + '.' + sig;
 }
 
 function getTokenUser(req) {
   const auth = req.headers['authorization'] || '';
   const match = auth.match(/^Bearer\s+(.+)$/i);
-  if (match && sessions.has(match[1])) {
-    return sessions.get(match[1]);
-  }
-  return null;
+  if (!match) return null;
+  const parts = match[1].split('.');
+  if (parts.length !== 2) return null;
+  const [payload, sig] = parts;
+  const expected = crypto.createHmac('sha256', SECRET).update(payload).digest('hex');
+  if (sig !== expected) return null;
+  try {
+    const decoded = Buffer.from(payload, 'base64').toString('utf8');
+    const username = decoded.split(':')[0];
+    return username || null;
+  } catch (e) { return null; }
 }
 
 // ===== JSON 响应工具 =====
