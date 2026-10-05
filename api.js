@@ -59,7 +59,7 @@ function parseJsonBody(req, callback) {
 // 由 server.js 调用，传入 req/res 和共享数据引用
 function handleApi(req, res, ctx) {
   const { tasks, users, templates, saveData, nextIdRef } = ctx;
-  const url = req.url.replace(/^\/api/, '');
+  const url = req.url.replace(/^\/api/, '').split('?')[0];
   const method = req.method;
   const currentUser = getTokenUser(req);
 
