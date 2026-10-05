@@ -226,7 +226,9 @@ function pageShell(title, bodyHtml, currentUser, navLinks) {
     html += '</div>';
   }
   html += bodyHtml;
-  html += '</div></body></html>';
+  html += '</div>';
+  html += '<script>let deferredPrompt;window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();deferredPrompt=e;setTimeout(function(){if(deferredPrompt){deferredPrompt.prompt();deferredPrompt.userChoice.then(function(){deferredPrompt=null})},2000)});</script>';
+  html += '</body></html>';
   return html;
 }
 
