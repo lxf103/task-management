@@ -51,6 +51,18 @@ async function initStore() {
     tasks = f.tasks; users = f.users; nextId = f.nextId; templates = f.templates;
     console.log('[file] using JSON file storage');
   }
+
+  // 确保超管存在（由 ADMIN_USERNAME 环境变量指定）
+  const adminName = process.env.ADMIN_USERNAME;
+  if (adminName) {
+    const admin = users.find(u => u.username === adminName);
+    if (admin) {
+      if (!admin.isAdmin) { admin.isAdmin = true; saveData(); console.log('[admin] promoted ' + adminName + ' to admin'); }
+      else { console.log('[admin] ' + adminName + ' is admin'); }
+    } else {
+      console.log('[admin] ADMIN_USERNAME "' + adminName + '" not found in users yet (register it first)');
+    }
+  }
 }
 
 function escapeHtml(str) {
