@@ -57,8 +57,8 @@ async function initStore() {
   if (adminName) {
     const admin = users.find(u => u.username === adminName);
     if (admin) {
-      if (!admin.isAdmin) { admin.isAdmin = true; saveData(); console.log('[admin] promoted ' + adminName + ' to admin'); }
-      else { console.log('[admin] ' + adminName + ' is admin'); }
+      if (!admin.isAdmin || !admin.isSuperAdmin) { admin.isAdmin = true; admin.isSuperAdmin = true; saveData(); console.log('[admin] promoted ' + adminName + ' to super admin'); }
+      else { console.log('[admin] ' + adminName + ' is super admin'); }
     } else {
       console.log('[admin] ADMIN_USERNAME "' + adminName + '" not found in users yet (register it first)');
     }

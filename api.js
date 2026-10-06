@@ -645,6 +645,74 @@ function handleApi(req, res, ctx) {
     });
   }
 
+  // ---------- 管理后台 ----------
+  if (url.startsWith('/admin')) {
+    if (!currentUser) return unauthorized(res);
+    const me = users.find(u => u.username === currentUser);
+    if (!me || !me.isAdmin) return json(res, 403, { success: false, message: '无管理员权限' });
+    const isSuper = !!me.isSuperAdmin;
+
+    // 概览：统计 + 用户列表 + 所有任务
+    if (url === '/admin/overview' && method === 'GET') {
+      return ok(res, {
+        isSuper,
+        stats: { tasks: tasks.length, users: users.length, completed: tasks.filter(t => t.confirmedAt).length },
+        users: users.map(u => ({ username: u.username, region: u.region || '', isAdmin: !!u.isAdmin, isSuperAdmin: !!u.isSuperAdmin, banned: !!u.banned })),
+        tasks: [...tasks].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt).map(formatTask)
+      });
+    }
+
+    // 封禁 / 解封
+    if (url === '/admin/ban' && method === 'POST') {
+      return parseJsonBody(req, (err, body) => {
+        if (err) return bad(res, 'JSON 格式错误');
+        const u = users.find(x => x.username === body.username);
+        if (!u || u.isAdmin || u.isSuperAdmin) return bad(res, '不能封禁管理员');
+        u.banned = true; saveData(); return ok(res, { banned: true });
+      });
+    }
+    if (url === '/admin/unban' && method === 'POST') {
+      return parseJsonBody(req, (err, body) => {
+        if (err) return bad(res, 'JSON 格式错误');
+        const u = users.find(x => x.username === body.username);
+        if (!u) return notFound(res);
+        u.banned = false; saveData(); return ok(res, { banned: false });
+      });
+    }
+
+    // 设为 / 取消管理员（仅超管）
+    if (url === '/admin/set-admin' && method === 'POST') {
+      if (!isSuper) return json(res, 403, { success: false, message: '只有超级管理员能设置管理员' });
+      return parseJsonBody(req, (err, body) => {
+        if (err) return bad(res, 'JSON 格式错误');
+        const u = users.find(x => x.username === body.username);
+        if (!u || u.isSuperAdmin) return bad(res, '无效操作对象');
+        u.isAdmin = true; saveData(); return ok(res, { isAdmin: true });
+      });
+    }
+    if (url === '/admin/remove-admin' && method === 'POST') {
+      if (!isSuper) return json(res, 403, { success: false, message: '只有超级管理员能取消管理员' });
+      return parseJsonBody(req, (err, body) => {
+        if (err) return bad(res, 'JSON 格式错误');
+        const u = users.find(x => x.username === body.username);
+        if (!u || u.isSuperAdmin || u.username === currentUser) return bad(res, '无效操作对象');
+        u.isAdmin = false; saveData(); return ok(res, { isAdmin: false });
+      });
+    }
+
+    // 删除任意任务
+    if (url === '/admin/delete-task' && method === 'POST') {
+      return parseJsonBody(req, (err, body) => {
+        if (err) return bad(res, 'JSON 格式错误');
+        const idx = tasks.findIndex(t => t.id === parseInt(body.taskId));
+        if (idx === -1) return notFound(res);
+        tasks.splice(idx, 1); saveData(); return ok(res, { deleted: true });
+      });
+    }
+
+    return notFound(res);
+  }
+
   // ---------- 获取分类列表（固定） ----------
   if (url === '/categories' && method === 'GET') {
     return ok(res, { categories: ['快递代拿', '学习', '生活', '跑腿', '其他'] });
