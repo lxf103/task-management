@@ -2,36 +2,56 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const { handleApi } = require('./api');
+const db = require('./db');
 
 const DATA_FILE = path.join(__dirname, 'task-data.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
 
-function loadData() {
+function loadFromFile() {
   try {
     const raw = fs.readFileSync(DATA_FILE, 'utf8');
     const data = JSON.parse(raw);
-    return {
-      tasks: data.tasks || [],
-      users: data.users || [],
-      nextId: data.nextId || 1,
-      templates: data.templates || []
-    };
+    return { tasks: data.tasks || [], users: data.users || [], nextId: data.nextId || 1, templates: data.templates || [] };
   } catch (e) {
     return { tasks: [], users: [], nextId: 1, templates: [] };
   }
 }
 
+// 运行时内存状态（真源）；启动时从 DB 或文件加载
+let tasks = [], users = [], nextId = 1, templates = [];
+
+function getState() { return { tasks, users, nextId, templates }; }
+
 function saveData() {
-  fs.writeFileSync(DATA_FILE, JSON.stringify({ tasks, users, nextId, templates }, null, 2), 'utf8');
+  if (db.hasDb) {
+    db.saveState(getState()).catch(e => console.log('[db] saveState error:', e.message));
+  } else {
+    try { fs.writeFileSync(DATA_FILE, JSON.stringify(getState(), null, 2), 'utf8'); } catch (e) {}
+  }
 }
 
-let loaded = loadData();
-let tasks = loaded.tasks;
-let users = loaded.users;
-let nextId = loaded.nextId;
-let templates = loaded.templates;
+// 启动时初始化存储：优先 DB，DB 空则用文件数据播种
+async function initStore() {
+  await db.init();
+  if (db.hasDb) {
+    const state = await db.loadState();
+    if (state) {
+      tasks = state.tasks || []; users = state.users || []; nextId = state.nextId || 1; templates = state.templates || [];
+      console.log('[db] loaded state from Postgres');
+    } else {
+      const f = loadFromFile();
+      tasks = f.tasks; users = f.users; nextId = f.nextId; templates = f.templates;
+      await db.saveState(getState());
+      console.log('[db] seeded Postgres from task-data.json');
+    }
+  } else {
+    const f = loadFromFile();
+    tasks = f.tasks; users = f.users; nextId = f.nextId; templates = f.templates;
+    console.log('[file] using JSON file storage');
+  }
+}
 
 function escapeHtml(str) {
   if (!str) return '';
@@ -470,15 +490,31 @@ const server = http.createServer((req, res) => {
     return;
   }
   if (url.startsWith('/uploads/')) {
-    const filePath = path.join(__dirname, url);
-    if (fs.existsSync(filePath)) {
-      const ext = path.extname(filePath).toLowerCase();
-      const mimeTypes = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
-      res.writeHead(200, {'Content-Type': mimeTypes[ext] || 'application/octet-stream'});
-      fs.createReadStream(filePath).pipe(res);
-    } else {
-      res.writeHead(404);
-      res.end('Not found');
+    const name = url.replace('/uploads/', '');
+    // 优先从数据库读
+    if (db.hasDb) {
+      db.getUpload(name).then(row => {
+        if (row) {
+          res.writeHead(200, { 'Content-Type': row.content_type || 'application/octet-stream' });
+          res.end(row.data);
+        } else {
+          serveUploadFromFile();
+        }
+      }).catch(() => serveUploadFromFile());
+      return;
+    }
+    serveUploadFromFile();
+    function serveUploadFromFile() {
+      const filePath = path.join(__dirname, 'uploads', path.basename(name));
+      if (fs.existsSync(filePath)) {
+        const ext = path.extname(filePath).toLowerCase();
+        const mimeTypes = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+        res.writeHead(200, {'Content-Type': mimeTypes[ext] || 'application/octet-stream'});
+        fs.createReadStream(filePath).pipe(res);
+      } else {
+        res.writeHead(404);
+        res.end('Not found');
+      }
     }
     return;
   }
@@ -1291,4 +1327,7 @@ const server = http.createServer((req, res) => {
 });
 
 const port = process.env.PORT || 3000;
-server.listen(port, () => { console.log('Server running on port ' + port); });
+(async () => {
+  try { await initStore(); } catch (e) { console.log('[db] init failed, using in-memory/file:', e.message); }
+  server.listen(port, () => { console.log('Server running on port ' + port); });
+})();

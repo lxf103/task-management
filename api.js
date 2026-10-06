@@ -5,6 +5,7 @@
  */
 
 const crypto = require('crypto');
+const db = require('./db');
 
 // ===== 无状态签名 Token =====
 // 生产环境应把 SECRET 放环境变量；练习项目硬编码即可。
@@ -31,6 +32,30 @@ function getTokenUser(req) {
     const username = decoded.split(':')[0];
     return username || null;
   } catch (e) { return null; }
+}
+
+// ===== 站内通知 =====
+function notify(users, targetUser, text, link, saveData) {
+  const u = users.find(x => x.username === targetUser);
+  if (!u) return;
+  u.notifications = u.notifications || [];
+  u.notifications.unshift({ text, link: link || '', at: Date.now(), read: false });
+  if (u.notifications.length > 50) u.notifications.length = 50;
+}
+
+// ===== 密码哈希（scrypt 加盐）=====
+function hashPassword(pw) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(String(pw), salt, 32).toString('hex');
+  return salt + ':' + hash;
+}
+function verifyPassword(pw, stored) {
+  stored = String(stored || '');
+  if (!stored.includes(':')) return stored === String(pw); // 兼容旧明文
+  const [salt, hash] = stored.split(':');
+  const test = crypto.scryptSync(String(pw), salt, 32).toString('hex');
+  try { return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(test, 'hex')); }
+  catch (e) { return false; }
 }
 
 // ===== JSON 响应工具 =====
@@ -73,7 +98,7 @@ function handleApi(req, res, ctx) {
       if (!username || !password) return bad(res, '用户名和密码不能为空');
       if (users.find(u => u.username === username)) return bad(res, '用户名已存在');
       const isFirstUser = users.length === 0;
-      users.push({ username, password, region: region || '', isAdmin: isFirstUser });
+      users.push({ username, password: hashPassword(password), region: region || '', isAdmin: isFirstUser });
       saveData();
       const token = generateToken(username);
       ok(res, { token, username });
@@ -85,8 +110,10 @@ function handleApi(req, res, ctx) {
     return parseJsonBody(req, (err, body) => {
       if (err) return bad(res, 'JSON 格式错误');
       const { username, password } = body;
-      const user = users.find(u => u.username === username && u.password === password);
-      if (!user) return bad(res, '用户名或密码错误');
+      const user = users.find(u => u.username === username);
+      if (!user || !verifyPassword(password, user.password)) return bad(res, '用户名或密码错误');
+      // 兼容旧的明文密码：登录成功时升级为哈希
+      if (!String(user.password).includes(':')) { user.password = hashPassword(password); saveData(); }
       if (user.banned) return bad(res, '账号已被封禁');
       const token = generateToken(username);
       ok(res, { token, username });
@@ -101,7 +128,7 @@ function handleApi(req, res, ctx) {
     const published = tasks.filter(t => t.publisher === currentUser).length;
     const claimed = tasks.filter(t => t.claimer === currentUser).length;
     const completed = tasks.filter(t => t.claimer === currentUser && t.confirmedAt).length;
-    return ok(res, { username: user.username, region: user.region, isAdmin: user.isAdmin, published, claimed, completed, balance: user.balance || 0 });
+    return ok(res, { username: user.username, region: user.region, avatar: user.avatar || '', isAdmin: user.isAdmin, published, claimed, completed, balance: user.balance || 0 });
   }
 
   // ---------- 钱包：查余额 ----------
@@ -139,7 +166,7 @@ function handleApi(req, res, ctx) {
     const stats = computeUserStats(target, tasks);
     const reviews = collectReviews(target, tasks);
     const isFollowing = currentUser && (users.find(u => u.username === currentUser) || {}).following && users.find(u => u.username === currentUser).following.includes(target);
-    return ok(res, { username: user.username, region: user.region, joined: user.joined || null, ...stats, reviews, isFollowing });
+    return ok(res, { username: user.username, region: user.region, avatar: user.avatar || '', joined: user.joined || null, ...stats, reviews, isFollowing });
   }
 
   // ---------- 关注 / 取关 ----------
@@ -204,6 +231,21 @@ function handleApi(req, res, ctx) {
     });
   }
 
+  // ---------- 站内通知 ----------
+  if (url === '/me/notifications' && method === 'GET') {
+    if (!currentUser) return unauthorized(res);
+    const me = users.find(u => u.username === currentUser);
+    const list = (me && me.notifications) || [];
+    const unread = list.filter(n => !n.read).length;
+    return ok(res, { notifications: list.slice(0, 50), unread });
+  }
+  if (url === '/me/notifications/read' && method === 'POST') {
+    if (!currentUser) return unauthorized(res);
+    const me = users.find(u => u.username === currentUser);
+    if (me && me.notifications) { me.notifications.forEach(n => n.read = true); saveData(); }
+    return ok(res, { ok: true });
+  }
+
   // ---------- 上传图片/附件 ----------
   if (url === '/upload' && method === 'POST') {
     if (!currentUser) return unauthorized(res);
@@ -232,6 +274,17 @@ function handleApi(req, res, ctx) {
       if (fileData.length > 10 * 1024 * 1024) return bad(res, '文件不能超过 10MB');
       const ext = fileName.split('.').pop() || 'png';
       const savedName = Date.now() + '_' + Math.random().toString(36).slice(2, 8) + '.' + ext;
+      const ctype = (req.headers['content-type'] || '').match(/Content-Type:\s*([^\r\n;]+)/i);
+      const mime = ctype ? ctype[1].trim() : ('image/' + (ext === 'jpg' ? 'jpeg' : ext));
+
+      // 优先存数据库
+      if (db.hasDb) {
+        db.saveUpload(savedName, fileData, mime).then(() => {
+          ok(res, { url: '/uploads/' + savedName, name: fileName });
+        }).catch(e => bad(res, '存储失败: ' + e.message));
+        return;
+      }
+      // 回退到文件系统
       const fs = require('fs');
       const path = require('path');
       const UPLOADS_DIR = path.join(__dirname, 'uploads');
@@ -250,6 +303,17 @@ function handleApi(req, res, ctx) {
       const user = users.find(u => u.username === currentUser);
       if (user) { user.region = body.region || ''; saveData(); }
       ok(res, { region: user ? user.region : '' });
+    });
+  }
+
+  // ---------- 更新头像 ----------
+  if (url === '/me/avatar' && method === 'PUT') {
+    if (!currentUser) return unauthorized(res);
+    return parseJsonBody(req, (err, body) => {
+      if (err) return bad(res, 'JSON 格式错误');
+      const user = users.find(u => u.username === currentUser);
+      if (user) { user.avatar = body.avatar || ''; saveData(); }
+      ok(res, { avatar: user ? user.avatar : '' });
     });
   }
 
@@ -294,6 +358,8 @@ function handleApi(req, res, ctx) {
       const pubStats = computeUserStats(t.publisher, tasks);
       f.publisherRating = pubStats.rating;
       f.publisherCompleted = pubStats.completed;
+      const pub = users.find(u => u.username === t.publisher);
+      f.publisherAvatar = (pub && pub.avatar) || '';
       return f;
     });
 
@@ -403,6 +469,7 @@ function handleApi(req, res, ctx) {
     if (task.publisher === currentUser) return bad(res, '不能领取自己发布的任务');
     task.claimed = true;
     task.claimer = currentUser;
+    notify(users, task.publisher, currentUser + ' 领取了你的任务「' + task.description.slice(0, 15) + '」', '/pages/detail/detail?id=' + task.id, saveData);
     saveData();
     return ok(res, { task: formatTask(task) });
   }
@@ -443,6 +510,7 @@ function handleApi(req, res, ctx) {
     if (!task) return notFound(res);
     if (task.claimer !== currentUser) return bad(res, '只有接单者能标记完成');
     task.completedAt = Date.now();
+    notify(users, task.publisher, currentUser + ' 完成了任务「' + task.description.slice(0, 15) + '」，请确认', '/pages/detail/detail?id=' + task.id, saveData);
     saveData();
     return ok(res, { task: formatTask(task) });
   }
@@ -455,6 +523,7 @@ function handleApi(req, res, ctx) {
     if (!task) return notFound(res);
     if (task.publisher !== currentUser) return bad(res, '只有发布者能确认');
     task.confirmedAt = Date.now();
+    if (task.claimer) notify(users, task.claimer, '你完成的任务「' + task.description.slice(0, 15) + '」已被确认', '/pages/detail/detail?id=' + task.id, saveData);
     saveData();
     return ok(res, { task: formatTask(task) });
   }
@@ -472,6 +541,7 @@ function handleApi(req, res, ctx) {
     if (active.find(b => b.user === currentUser)) return bad(res, '你已经预约过了');
     task.bookings = task.bookings || [];
     task.bookings.push({ user: currentUser, status: 'booked', bookedAt: Date.now(), completedAt: null, confirmedAt: null });
+    notify(users, task.publisher, currentUser + ' 预约了你的服务「' + task.description.slice(0, 15) + '」', '/pages/detail/detail?id=' + task.id, saveData);
     saveData();
     return ok(res, { task: formatTask(task, true) });
   }
@@ -534,6 +604,7 @@ function handleApi(req, res, ctx) {
       const rating = parseInt(body.rating);
       if (!rating || rating < 1 || rating > 5) return bad(res, '评分 1-5');
       task.bookings[idx].rating = rating;
+      if (body.comment) task.bookings[idx].comment = String(body.comment).slice(0, 200);
       saveData();
       ok(res, { task: formatTask(task, true) });
     });
@@ -551,6 +622,7 @@ function handleApi(req, res, ctx) {
       const rating = parseInt(body.rating);
       if (!rating || rating < 1 || rating > 5) return bad(res, '评分 1-5');
       task.rating = rating;
+      if (body.comment) task.reviewComment = String(body.comment).slice(0, 200);
       saveData();
       ok(res, { task: formatTask(task) });
     });
@@ -566,8 +638,10 @@ function handleApi(req, res, ctx) {
       if (err) return bad(res, 'JSON 格式错误');
       if (!body.content) return bad(res, '消息不能为空');
       task.messages.push({ user: currentUser, content: body.content, at: Date.now() });
+      const other = task.publisher === currentUser ? task.claimer : task.publisher;
+      if (other) notify(users, other, currentUser + ' 在任务「' + task.description.slice(0, 12) + '」给你发了消息', '/pages/detail/detail?id=' + task.id, saveData);
       saveData();
-      ok(res, { messages: task.messages });
+      return ok(res, { messages: task.messages });
     });
   }
 
@@ -626,6 +700,7 @@ function formatTask(t, includeMessages = false) {
     completedAt: t.completedAt,
     confirmedAt: t.confirmedAt,
     rating: t.rating || 0,
+    reviewComment: t.reviewComment || '',
     pinned: t.pinned || false,
     attachments: (t.attachments || []).map(a => ({ name: a.originalName || a.name, url: a.url || a.path })),
     messageCount: (t.messages || []).length
@@ -662,11 +737,11 @@ function collectReviews(username, tasks) {
     if (t.type === 'offer') {
       (t.bookings || []).forEach(b => {
         if (b.user === username && b.rating) {
-          reviews.push({ from: t.publisher, rating: b.rating, taskId: t.id, taskDesc: t.description, at: b.confirmedAt || b.completedAt });
+          reviews.push({ from: t.publisher, rating: b.rating, comment: b.comment || '', taskId: t.id, taskDesc: t.description, at: b.confirmedAt || b.completedAt });
         }
       });
     } else if (t.claimer === username && t.rating) {
-      reviews.push({ from: t.publisher, rating: t.rating, taskId: t.id, taskDesc: t.description, at: t.confirmedAt });
+      reviews.push({ from: t.publisher, rating: t.rating, comment: t.reviewComment || '', taskId: t.id, taskDesc: t.description, at: t.confirmedAt });
     }
   });
   return reviews.sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 20);
